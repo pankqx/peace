@@ -1,51 +1,49 @@
 ---
 name: add-peace-game
-description: Add a new multiplayer card game (Teen Patti, War, Blackjack vs dealer, Higher or Lower, etc.) to the peace repo (pankqx/peace), reusing its SVG cards, room codes, Firebase/solo store and host-driven game loop. Use whenever the user wants another game on the peace site, asks to "add a game", or wants to change how Andar Bahar plays.
+description: Add a new multiplayer card game (Teen Patti, War, Hi-Lo, Baccarat-style, etc.) to the peace repo (pankqx/peace), reusing its vintage SVG cards, room codes, Firebase/solo store, shared betting engine and coin UI. Use whenever the user wants another game on the peace site, asks to "add a game", or wants to change how Andar Bahar or Dragon Tiger plays.
 ---
 
 # Add a game to peace
 
-peace is a static GitHub Pages site (no build step). Games are multiplayer through a
-shared "room store": Firebase Realtime Database online, an in-memory store for solo play.
-One browser — the **host** — runs the game loop; everyone else only places their own actions.
+peace is a static GitHub Pages site (no build step; `.github/workflows/pages.yml` deploys `main`).
+Games are multiplayer through a shared "room store": Firebase Realtime Database online, an
+in-memory store for solo play. One browser — the **host/dealer** — runs the game loop;
+everyone else only places their own bets.
 
-## Read these first
-- `js/games/andar-bahar/engine.js` — the reference game. Copy its shape.
-- `js/store.js` — store interface: `subscribe`, `update({ 'a/b': v })`, `transaction(path, fn)`, `now()`.
-- `js/cards.js` — `cardEl(code, { faceDown })`, `rankOf`, `suitOf`, `SUITS`, `RANKS`. Card codes are like `AS`, `TD` (10), `QH`.
-- `js/app.js` — home screen and table UI (`GameView`).
+## How games plug in
+1. `js/games/core.js` — shared engine (`RoomClient`): betting phase, dealing loop, settlement,
+   host takeover, bots. You normally don't touch it.
+2. `js/games/<id>/rules.js` — the game itself. Copy `dragon-tiger/rules.js` (simplest) and fill in:
+   - `id`, `name`, `tagline`, `config` (timing overrides), `sides` (`{id, label, sub, pays}`),
+   - `steps` (exactly 3 `[bold, detail]` lines of plain English) and `payNote`,
+   - `startRound(deck)` → fields for the new round (pop any cards shown before betting),
+   - `seen(r)` → cards already shown (used to rebuild the deck on host takeover),
+   - `dealStep(r, card)` → `{ set: {roundField: value}, done, winner, delay? }`,
+   - `payout(bet, winner)` → coins returned **including the stake** (0 = lost, stake = refund),
+   - `mark(winner)`, `markLabel`, `dealingText(r)`, `winText(winner)`, `botSide()`.
+3. Register it in `js/games/index.js`.
+4. Add a view class in `js/views.js` and register it in `VIEWS`. It must:
+   - render the table markup into the given element, including `STATUS_HTML`,
+   - give every betting spot `data-side="<side id>"` (that makes it tappable) and a
+     `<span class="bettors" data-bettors="<side id>">` (that shows who bet there),
+   - return `{ dealt, flipped, match }` from `render()` so sounds play, and expose `flashTarget()`.
+5. Add side colours in `css/style.css` (`.zone--<side>, .side--<side>, .mark-<side>, ... { --side: ... }`),
+   a home picker style `.pick--<id>`, a hero layout in `HERO` in `js/app.js`, and a history letter
+   mapping in `SIDE_MARK`.
 
-## Rules for a new game
-
-1. **Engine file** at `js/games/<game-id>/engine.js`, no DOM code. Export:
-   - `CONFIG` (timings, chip values),
-   - `newRoom(pid, name, now)` setting `meta.game = '<game-id>'`,
-   - a `RoomClient` class with player actions and a `tick()` host loop.
-2. **Room data stays small and flat**: `meta`, `players`, `round`, per-player actions keyed by pid
-   (like `bets/{pid}`), and `history`. Tag every action with `round: n` and ignore stale ones.
-3. **Only the host writes `round`**. Players write only their own `players/{pid}` and action nodes.
-   Money-like values (chips) always change through `transaction`.
-4. **Never store the unseen deck in the database** (any player could read it). The host keeps
-   the shuffled deck in memory; on host takeover, rebuild it from cards not yet shown.
-5. **Host takeover**: keep `maybeTakeOver` behaviour — if the host is offline for
-   `hostTimeoutMs`, the earliest-joined online human becomes host.
-6. **Settle once**: write `round/settled: true` together with results, then pay out.
-7. **Bots** for solo mode: a `runBot(client)` that acts with a random delay.
-8. Firebase turns objects with number keys into arrays — read lists with `toList()`.
-
-## UI
-- Add the game to the home screen as a choice; keep the same entry form (name, create, join, solo).
-- Reuse the felt table, brass rail, chips row and player list styles in `css/style.css`.
-  Keep tap targets at least 44px; check at 390×844 (phone) and 1440×900 (laptop).
-- "How to play" is at most 3 short steps in plain English, plus one line on payouts.
-  Say "chips are just for fun — no real money".
+## Rules that keep it fair and working
+- Only the host writes `round`; players write only their own `players/{pid}` and `bets/{pid}`.
+  Coins always change through `transaction`.
+- Never store the unseen deck in the database (players could read it). The host keeps it in memory.
+- Firebase turns number-keyed objects into arrays — read lists with `toList()`.
+- Copy says "coins", never "chips" or real money. Coins are just for fun.
 
 ## Test before pushing
-1. Write `dev/test-<game-id>.mjs` modelled on `dev/test-engine.mjs`: 3 clients on one
-   `LocalStore`, fast timings, play 10 rounds, drop the host mid-game, and assert payouts.
-   Run with `node dev/test-<game-id>.mjs`.
-2. Serve with `python3 -m http.server` and play a solo round in a headless browser at both sizes.
+1. Add the game to `dev/test-engine.mjs` with its own correctness check, then `node dev/test-engine.mjs`.
+   It plays 10 rounds with 3 clients, drops the host mid-game and checks every payout.
+2. `python3 -m http.server` and play solo rounds in a headless browser at 390×844 (phone),
+   1440×900 and 1920×960 (laptop — the whole game must fit without scrolling).
 
 ## Commit
 Commit in small steps as the user's own git identity (`pankqx`, `pankqx@gmail.com`),
-with no co-author trailers, and push to `main` — GitHub Pages deploys from there.
+with no co-author trailers, and push to `main`.

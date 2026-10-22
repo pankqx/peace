@@ -2,7 +2,10 @@
 
 Card games to play with friends in the browser — phone or laptop, no app, no sign-up.
 
-**Andar Bahar** — share a 4-letter room code, everyone picks Andar or Bahar, and the first card matching the middle card wins. Play chips only, no real money.
+- **Andar Bahar**: everyone picks Andar or Bahar, and the first card matching the middle card wins.
+- **Dragon Tiger**: one card each to Dragon and Tiger. Higher card wins, or bet on a Tie.
+
+Share a 4-letter room code to play together. Coins are just for fun, no real money.
 
 ## Play
 - Online: open the site, type your name, **Create a room**, share the link.
@@ -19,8 +22,11 @@ Plain HTML, CSS and JavaScript modules — no build step, served by GitHub Pages
 | `js/cards.js` | Hand-built SVG playing cards (faces, court cards, back) |
 | `js/store.js` | Room store interface + in-memory store for solo play |
 | `js/firebase-store.js` | Same interface backed by Firebase Realtime Database |
-| `js/games/andar-bahar/engine.js` | Rules, betting, dealing, payouts, host takeover, bots |
-| `js/app.js` | Home screen and game table UI |
+| `js/games/core.js` | Shared engine: betting, dealing loop, payouts, host takeover, bots |
+| `js/games/<game>/rules.js` | Each game's rules (Andar Bahar, Dragon Tiger) |
+| `js/views.js` | Each game's table layout and card animations |
+| `js/fx.js` | Sounds, flying coins, result flash |
+| `js/app.js` | Home screen, game picker and shared game screen |
 | `database.rules.json` | Firebase security rules |
 | `dev/test-engine.mjs` | Multiplayer simulation test: `node dev/test-engine.mjs` |
 
@@ -28,4 +34,4 @@ One player's browser acts as the dealer (the host). If the host leaves, the next
 
 ## Roadmap
 - Admin panel
-- More games on the same table and card set
+- More games on the same table and card set (see `.claude/skills/add-peace-game`)
