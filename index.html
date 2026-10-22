@@ -52,7 +52,14 @@
           <input id="name" name="name" maxlength="16" placeholder="e.g. Pank" required>
         </label>
         <details class="room-settings" id="room-settings">
-          <summary><span>Starting coins</span><b id="start-label">1,000</b></summary>
+          <summary><span>Room settings</span><b id="start-label">1,000</b></summary>
+          <p class="settings-head">Who pays the winners?</p>
+          <div class="start-pills" role="radiogroup" aria-label="Who pays the winners" id="mode-pills">
+            <button class="start-pill" type="button" role="radio" data-mode="pot" aria-checked="true">Other players</button>
+            <button class="start-pill" type="button" role="radio" data-mode="fixed" aria-checked="false">The bank</button>
+          </div>
+          <p class="settings-note" id="mode-note"></p>
+          <p class="settings-head">Starting coins for each player</p>
           <div class="start-pills" role="radiogroup" aria-label="Starting coins" id="start-pills"></div>
           <label class="field">
             <span>Or type your own amount (100 to 10,00,000)</span>

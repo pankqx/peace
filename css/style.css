@@ -375,7 +375,8 @@ button { cursor: pointer; }
   cursor: pointer; list-style: none; font-size: 15px; color: var(--muted);
 }
 .room-settings summary::-webkit-details-marker { display: none; }
-.room-settings summary b { display: inline-flex; align-items: center; gap: 6px; color: var(--brass-light); font-size: 17px; }
+.room-settings summary span { white-space: nowrap; }
+.room-settings summary b { display: inline-flex; align-items: center; gap: 6px; color: var(--brass-light); font-size: 15px; text-align: right; line-height: 1.2; }
 .room-settings summary b::before { content: ''; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #FFF2C2, #E0AE45 50%, #8E6413); }
 .room-settings summary b::after { content: ''; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); margin: 0 2px 4px 6px; transition: transform .2s; }
 .room-settings[open] summary b::after { transform: rotate(225deg); margin-bottom: -2px; }
@@ -384,6 +385,8 @@ button { cursor: pointer; }
 .start-pill[aria-checked="true"] { background: linear-gradient(180deg, #FCE7A6, #D9B45E 55%, #B38A36); color: #2A1C02; border-color: transparent; }
 .room-settings .field input { height: 46px; font-size: 17px; }
 .settings-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.settings-head { margin: 6px 0 0; font-size: 14px; font-weight: 700; color: var(--text); }
+#mode-note { margin: -4px 0 12px; }
 .start-edit { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 6px 0 14px; border-radius: 14px; background: rgba(0, 0, 0, .25); border: 1px solid rgba(255, 255, 255, .14); font-size: 14px; color: var(--muted); }
 .start-edit select { height: 34px; border-radius: 10px; border: 0; padding: 0 8px; font: inherit; font-weight: 800; color: #2A1C02; background: linear-gradient(180deg, #FCE7A6, #D9B45E); }
 

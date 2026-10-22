@@ -63,10 +63,38 @@ export function coinValuesFor(start) {
   return [10, 50, 100, 500];
 }
 
-export function newRoom(game, pid, name, now, startCoins = BASE.startChips) {
+// How winners get paid:
+//   'pot'   — players vs players: winners split the losers' coins (stake back + share by stake).
+//   'fixed' — the bank pays each game's fixed odds (2×, 1.9×, 9×).
+export const PAY_MODES = ['pot', 'fixed'];
+
+// Players-vs-players settlement. Returns { pid: coins returned (stake included) }.
+// Losers' coins are shared among winners in proportion to their stakes; leftover coins from
+// rounding go to the biggest winners so the room's total never changes. If nobody won,
+// everyone gets their stake back.
+export function potPayouts(bets, winner) {
+  const winners = bets.filter((b) => b.side === winner);
+  const losersTotal = bets.filter((b) => b.side !== winner).reduce((t, b) => t + b.amount, 0);
+  const winTotal = winners.reduce((t, b) => t + b.amount, 0);
+  const out = {};
+  if (!winTotal) { for (const b of bets) out[b.pid] = b.amount; return out; }
+  for (const b of bets) out[b.pid] = 0;
+  let given = 0;
+  for (const b of winners) {
+    const share = Math.floor((losersTotal * b.amount) / winTotal);
+    out[b.pid] = b.amount + share;
+    given += share;
+  }
+  let left = losersTotal - given;
+  const order = winners.slice().sort((a, b) => b.amount - a.amount || (a.pid < b.pid ? -1 : 1));
+  for (let i = 0; left > 0; i = (i + 1) % order.length, left--) out[order[i].pid] += 1;
+  return out;
+}
+
+export function newRoom(game, pid, name, now, startCoins = BASE.startChips, payMode = 'pot') {
   const start = clampStart(startCoins);
   return {
-    meta: { host: pid, created: now, game, startCoins: start },
+    meta: { host: pid, created: now, game, startCoins: start, payMode: PAY_MODES.includes(payMode) ? payMode : 'pot' },
     players: { [pid]: { name, chips: start, joined: now, online: true } },
     round: { n: 0, phase: 'lobby' },
   };
@@ -99,6 +127,8 @@ export class RoomClient {
   get isHost() { return !!(this.state && this.state.meta && this.state.meta.host === this.pid); }
   startCoins() { return clampStart((this.state && this.state.meta && this.state.meta.startCoins) || this.cfg.startChips); }
   coinValues() { return coinValuesFor(this.startCoins()); }
+  // Rooms made before this setting existed keep fixed payouts.
+  payMode() { const m = this.state && this.state.meta && this.state.meta.payMode; return PAY_MODES.includes(m) ? m : 'fixed'; }
   minCoin() { return this.coinValues()[0]; }
   refillAmount() { return Math.max(this.minCoin(), Math.round(this.startCoins() / 2)); }
 
@@ -166,6 +196,13 @@ export class RoomClient {
   async refill() {
     await this.store.transaction(`players/${this.pid}/chips`, (c) =>
       c == null ? c : c < this.minCoin() ? this.refillAmount() : undefined);
+  }
+
+  // Host only, before the first round.
+  async setPayMode(mode) {
+    if (!this.isHost || this.round.phase !== 'lobby' || !PAY_MODES.includes(mode)) return false;
+    await this.store.update({ 'meta/payMode': mode });
+    return true;
   }
 
   // Host only, before the first round: change everyone's starting coins.
@@ -270,11 +307,14 @@ export class RoomClient {
   async settle(s, r) {
     const net = {};
     const payouts = [];
-    for (const [pid, b] of Object.entries(s.bets || {})) {
-      if (!b || b.round !== r.n) continue;
-      const back = this.rules.payout(b, r.winner);
-      net[pid] = back - b.amount;
-      if (back > 0) payouts.push([pid, back]);
+    const bets = Object.entries(s.bets || {})
+      .filter(([, b]) => b && b.round === r.n)
+      .map(([pid, b]) => ({ pid, side: b.side, amount: b.amount }));
+    const pot = this.payMode() === 'pot' ? potPayouts(bets, r.winner) : null;
+    for (const b of bets) {
+      const back = pot ? pot[b.pid] : this.rules.payout(b, r.winner);
+      net[b.pid] = back - b.amount;
+      if (back > 0) payouts.push([b.pid, back]);
     }
     await this.store.update({ 'round/settled': true, 'round/net': Object.keys(net).length ? net : null });
     for (const [pid, back] of payouts) {

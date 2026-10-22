@@ -41,7 +41,7 @@ export class AndarBaharView {
     table.className = 'table table--ab';
     table.innerHTML = `
       <div class="lane zone zone--andar" id="lane-andar" ${zoneAttrs('andar', 'Andar')}>
-        <div class="zone-head"><span class="zone-name">${andar.label}</span><span class="zone-sub">${andar.sub}, pays ${andar.pays}</span>
+        <div class="zone-head"><span class="zone-name">${andar.label}</span><span class="zone-sub">${andar.sub}, <span data-pays="andar">pays ${andar.pays}</span></span>
           <span class="bettors" data-bettors="andar"></span></div>
         <div class="lane-cards" id="cards-andar"></div>
       </div>
@@ -50,7 +50,7 @@ export class AndarBaharView {
         ${STATUS_HTML}
       </div>
       <div class="lane zone zone--bahar" id="lane-bahar" ${zoneAttrs('bahar', 'Bahar')}>
-        <div class="zone-head"><span class="zone-name">${bahar.label}</span><span class="zone-sub">${bahar.sub}, pays ${bahar.pays}</span>
+        <div class="zone-head"><span class="zone-name">${bahar.label}</span><span class="zone-sub">${bahar.sub}, <span data-pays="bahar">pays ${bahar.pays}</span></span>
           <span class="bettors" data-bettors="bahar"></span></div>
         <div class="lane-cards" id="cards-bahar"></div>
       </div>`;
@@ -140,7 +140,7 @@ export class DragonTigerView {
     const [dragon, tie, tiger] = rules.sides;
     const zone = (sd) => `
       <div class="zone dt-zone zone--${sd.id}" id="zone-${sd.id}" ${zoneAttrs(sd.id, sd.label)}>
-        <div class="zone-head"><span class="zone-name">${sd.label}</span><span class="zone-sub">pays ${sd.pays}</span></div>
+        <div class="zone-head"><span class="zone-name">${sd.label}</span><span class="zone-sub" data-pays="${sd.id}">pays ${sd.pays}</span></div>
         <div class="dt-slot" id="slot-${sd.id}"><div class="dt-slot-empty"></div></div>
         <span class="bettors" data-bettors="${sd.id}"></span>
       </div>`;
@@ -151,7 +151,7 @@ export class DragonTigerView {
         <div class="dt-mid">
           <div class="dt-vs" aria-hidden="true">VS</div>
           <div class="zone dt-tie zone--tie" id="zone-tie" ${zoneAttrs('tie', 'Tie')}>
-            <span class="zone-name">${tie.label}</span><span class="zone-sub">pays ${tie.pays}</span>
+            <span class="zone-name">${tie.label}</span><span class="zone-sub" data-pays="tie">pays ${tie.pays}</span>
             <span class="bettors" data-bettors="tie"></span>
           </div>
         </div>

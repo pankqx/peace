@@ -9,6 +9,7 @@ Share a 4-letter room code to play together. Coins are just for fun, no real mon
 
 ## Play
 - Online: open the site, type your name, **Create a room**, share the link.
+- Winners: by default it's players vs players, so winners take the losers' coins, shared by how much each bet (if nobody wins, everyone gets their coins back). The room creator can switch to fixed bank payouts instead.
 - Starting coins: 1,000 each by default. The room creator can pick another amount under **Starting coins** (or change it in the lobby before the game starts).
 - Solo: **Practise solo with 3 bots** works without any setup.
 

@@ -46,12 +46,35 @@ const HERO = {
 let selectedGame = GAMES[recall('peace.game')] ? recall('peace.game') : 'andar-bahar';
 const START_PRESETS = [500, 1000, 2000, 5000, 10000];
 let startCoins = clampStart(recall('peace.start') || 1000);
+let payMode = recall('peace.mode') === 'fixed' ? 'fixed' : 'pot';
+const MODE_NOTE = {
+  pot: 'Players vs players: winners take the losers’ coins, shared by how much each bet. If nobody wins, everyone gets their coins back.',
+  fixed: 'The bank pays fixed amounts, like 2× on a win. Nobody loses coins to another player.',
+};
+const MODE_SHORT = { pot: 'players pay', fixed: 'bank pays' };
+
+function updateSettingsLabel() {
+  $('start-label').textContent = `${fmt(startCoins)} coins, ${MODE_SHORT[payMode]}`;
+}
+
+function setMode(m) {
+  payMode = m === 'fixed' ? 'fixed' : 'pot';
+  remember('peace.mode', payMode);
+  $('mode-pills').querySelectorAll('.start-pill').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === payMode)));
+  $('mode-note').textContent = MODE_NOTE[payMode];
+  updateSettingsLabel();
+  showGameInfo(selectedGame);
+}
+
+function payNoteFor(rules, mode) {
+  return mode === 'pot' ? MODE_NOTE.pot : rules.payNote;
+}
 const coinLabel = (v) => (v >= 1000 && v % 1000 === 0 ? `${v / 1000}K` : String(v));
 
 function setStart(v, fromCustom = false) {
   startCoins = clampStart(v);
   remember('peace.start', startCoins);
-  $('start-label').textContent = fmt(startCoins);
+  updateSettingsLabel();
   $('start-pills').querySelectorAll('.start-pill').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.v) === startCoins)));
   if (!fromCustom) $('start-custom').value = START_PRESETS.includes(startCoins) ? '' : startCoins;
 }
@@ -68,8 +91,12 @@ function setupStartCoins() {
     if (v >= 1) setStart(v, true);
   });
   $('start-custom').addEventListener('change', (e) => { if (e.target.value) setStart(e.target.value); });
-  if (startCoins !== 1000) $('room-settings').open = true;
+  $('mode-pills').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (b) setMode(b.dataset.mode);
+  });
   setStart(startCoins);
+  setMode(payMode);
 }
 
 function showGameInfo(id) {
@@ -79,7 +106,7 @@ function showGameInfo(id) {
   $('game-title').textContent = g.name;
   $('game-lede').textContent = g.tagline;
   $('steps').innerHTML = g.steps.map(([b, t]) => `<li><b>${b}</b> ${t}</li>`).join('');
-  $('pay-note').textContent = `${g.payNote} Coins are just for fun — no real money.`;
+  $('pay-note').textContent = `${payNoteFor(g, payMode)} Coins are just for fun — no real money.`;
   $('picker').querySelectorAll('.pick').forEach((p) => p.setAttribute('aria-checked', String(p.dataset.game === id)));
   const slots = document.querySelectorAll('#hero-table .hero-card');
   HERO[id].forEach(([code, down, cls], i) => {
@@ -154,7 +181,7 @@ async function enterOnline(code, name, create) {
       store = await openFirebaseStore(code);
       if (!(await store.exists())) break;
     }
-    await store.create(newRoom(selectedGame, PID, name, store.now(), startCoins));
+    await store.create(newRoom(selectedGame, PID, name, store.now(), startCoins, payMode));
   } else {
     store = await openFirebaseStore(code);
     if (!(await store.exists())) throw new Error(`No room called ${code}. Check the code and try again.`);
@@ -178,7 +205,7 @@ function waitForState(client) {
 
 async function startSolo(name) {
   const rules = GAMES[selectedGame];
-  const store = new LocalStore(newRoom(rules.id, PID, name, Date.now(), startCoins));
+  const store = new LocalStore(newRoom(rules.id, PID, name, Date.now(), startCoins, payMode));
   const client = new RoomClient(store, PID, rules);
   const bots = [['bot-ravi', 'Ravi'], ['bot-anu', 'Anu'], ['bot-kabir', 'Kabir']].map(([id, n]) => {
     const b = new RoomClient(store, id, rules);
@@ -219,7 +246,6 @@ class GameView {
     this.lastTick = null;
     this.lastPhase = null;
     $('game').dataset.game = this.rules.id;
-    $('rules-mini').textContent = `${this.rules.steps.map(([b]) => b).join(' ')} ${this.rules.payNote}`;
     this.buildSides();
     this.bind();
     client.onChange((s) => s && this.render(s));
@@ -233,7 +259,7 @@ class GameView {
     $('sides').innerHTML = this.rules.sides.map((sd) => `
       <button class="side side--${sd.id}" type="button" data-side="${sd.id}">
         <span class="side-name">${sd.label}</span>
-        <span class="side-pays">pays ${sd.pays}</span>
+        <span class="side-pays" data-pays="${sd.id}">pays ${sd.pays}</span>
         <span class="side-mine" id="mine-${sd.id}"></span>
         <span class="bettors" data-bettors="${sd.id}"></span>
       </button>`).join('');
@@ -281,6 +307,7 @@ class GameView {
     $('leave-btn').addEventListener('click', () => this.leave());
     $('table').addEventListener('change', (e) => {
       if (e.target.id === 'start-select') this.c.setStartCoins(Number(e.target.value));
+      if (e.target.id === 'mode-select') this.c.setPayMode(e.target.value);
     });
     $('table').addEventListener('click', (e) => {
       const a = e.target.closest('[data-act]');
@@ -324,6 +351,12 @@ class GameView {
     const r = s.round || { n: 0, phase: 'lobby' };
     const me = s.players && s.players[PID];
     const myBet = this.c.myBet(s);
+    if (this.mode !== this.c.payMode()) {
+      const changed = this.mode != null;
+      this.mode = this.c.payMode();
+      $('rules-mini').textContent = `${this.rules.steps.map(([b]) => b).join(' ')} ${payNoteFor(this.rules, this.mode)}`;
+      if (changed) toast(this.mode === 'pot' ? 'Players vs players: winners take the losers’ coins.' : 'The bank pays winners fixed amounts.');
+    }
     if (this.start !== this.c.startCoins()) {
       const changed = this.start !== null;
       this.start = this.c.startCoins();
@@ -347,16 +380,17 @@ class GameView {
     this.renderStatus(s, r, me, myBet);
     this.renderSides(s, r, me, myBet);
     this.renderBettors(s, r);
+    this.renderPays(s, r);
     this.renderPlayers(s, r);
     this.renderHistory(s);
 
     if (r.phase === 'result' && r.settled && this.resultRound !== r.n) {
       this.resultRound = r.n;
       flash($('table'), this.rules.winText(r.winner), `flash--${r.winner}`);
-      if (myBet) {
-        const back = this.rules.payout(myBet, r.winner);
-        setTimeout(() => sound.play(back > myBet.amount ? 'win' : back === myBet.amount ? 'coin' : 'lose'), 350);
-        if (back > myBet.amount) {
+      const myNet = r.net && r.net[PID];
+      if (myBet && myNet != null) {
+        setTimeout(() => sound.play(myNet > 0 ? 'win' : myNet === 0 ? 'coin' : 'lose'), 350);
+        if (myNet > 0) {
           coinBurst(this.view.flashTarget(), $('bank'), 16);
           const bank = $('bank');
           setTimeout(() => { bank.classList.remove('bump'); void bank.offsetWidth; bank.classList.add('bump'); }, 1000);
@@ -377,7 +411,12 @@ class GameView {
       const start = this.c.startCoins();
       html = `Waiting for players<small>${count} at the table. Share the room code <b>${esc(this.opts.code)}</b> with friends.</small><small>Everyone starts with ${fmt(start)} coins.</small>`;
       const presets = [...new Set([...START_PRESETS, start])].sort((a, b) => a - b);
+      const mode = this.c.payMode();
+      html += `<small>${mode === 'pot' ? 'Players vs players: winners take the losers’ coins.' : 'The bank pays winners fixed amounts.'}</small>`;
       act = (host ? `<button class="btn btn-gold btn-small" data-act="start">Start game</button>
+        <label class="start-edit"><span>Winners paid by</span><select id="mode-select" aria-label="Who pays the winners">
+        <option value="pot"${mode === 'pot' ? ' selected' : ''}>Other players</option>
+        <option value="fixed"${mode === 'fixed' ? ' selected' : ''}>The bank</option></select></label>
         <label class="start-edit"><span>Starting coins</span><select id="start-select" aria-label="Starting coins for each player">
         ${presets.map((v) => `<option value="${v}"${v === start ? ' selected' : ''}>${fmt(v)}</option>`).join('')}</select></label>` : '') +
         `<button class="btn btn-ghost btn-small" data-act="share">Share link</button>`;
@@ -389,9 +428,8 @@ class GameView {
       html = `Dealing…<small>${esc(this.rules.dealingText(r))}</small>`;
     } else if (r.phase === 'result') {
       let sub = '<small>Next round in a moment</small>';
-      if (r.settled && myBet) {
-        const back = this.rules.payout(myBet, r.winner);
-        const net = back - myBet.amount;
+      if (r.settled && myBet && r.net && r.net[PID] != null) {
+        const net = r.net[PID];
         const line = net > 0 ? `You won ${fmt(net)} coins` : net === 0 ? 'Your coins came back' : `You lost ${fmt(-net)} coins`;
         sub = `<small class="${net > 0 ? 'res-win' : net < 0 ? 'res-lose' : ''}">${line}</small><small>Next round in a moment</small>`;
       } else if (r.settled) sub = '<small>You sat this one out. Next round in a moment.</small>';
@@ -461,6 +499,28 @@ class GameView {
       document.querySelectorAll(`[data-bettors="${sd.id}"]`).forEach((el) => {
         if (el.dataset.k !== pills) { el.innerHTML = pills; el.dataset.k = pills; }
       });
+    }
+  }
+
+  // Fixed mode shows the game's odds. Players-vs-players shows what a win would pay right now.
+  renderPays(s, r) {
+    const mode = this.c.payMode();
+    const totals = {};
+    let all = 0;
+    for (const b of Object.values(s.bets || {})) {
+      if (!b || b.round !== r.n) continue;
+      totals[b.side] = (totals[b.side] || 0) + b.amount;
+      all += b.amount;
+    }
+    for (const sd of this.rules.sides) {
+      let text = `pays ${sd.pays}`;
+      if (mode === 'pot') {
+        const mine = totals[sd.id] || 0;
+        if (!all) text = 'winners take the pot';
+        else if (!mine) text = `win up to ${fmt(all)}`;
+        else text = `pays ×${(all / mine).toFixed(2).replace(/\.?0+$/, '')} now`;
+      }
+      document.querySelectorAll(`[data-pays="${sd.id}"]`).forEach((el) => { if (el.textContent !== text) el.textContent = text; });
     }
   }
 

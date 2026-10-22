@@ -1,7 +1,7 @@
 // Multiplayer simulation: 3 clients share one in-memory store, the host leaves mid-game.
 // Run: node dev/test-engine.mjs
 import { LocalStore, toList } from '../js/store.js';
-import { RoomClient, BASE, newRoom, coinValuesFor } from '../js/games/core.js';
+import { RoomClient, BASE, newRoom, coinValuesFor, potPayouts } from '../js/games/core.js';
 import { GAMES } from '../js/games/index.js';
 import { rankOf } from '../js/cards.js';
 import { cardValue } from '../js/games/dragon-tiger/rules.js';
@@ -12,7 +12,7 @@ let failed = 0;
 
 async function play(gameId, plan) {
   const rules = { ...GAMES[gameId], config: { dealMs: 20 } };
-  const store = new LocalStore(newRoom(gameId, 'p1', 'Host', Date.now()));
+  const store = new LocalStore(newRoom(gameId, 'p1', 'Host', Date.now(), 1000, 'fixed'));
   const a = new RoomClient(store, 'p1', rules), b = new RoomClient(store, 'p2', rules), c = new RoomClient(store, 'p3', rules);
   await sleep(10);
   await b.join('Bee'); await c.join('Cee');
@@ -58,6 +58,39 @@ async function play(gameId, plan) {
   if (store.state.meta.host !== 'p2') errors.push('host takeover did not happen');
   console.log(errors.length ? `${gameId}: FAILED\n  ` + errors.join('\n  ') : `${gameId}: all checks passed (${rounds} rounds)`);
   failed += errors.length;
+}
+
+// Players vs players: winners split the losers' coins.
+{
+  const errs = [];
+  const eq = (a, b, msg) => { if (JSON.stringify(a) !== JSON.stringify(b)) errs.push(`${msg}: ${JSON.stringify(a)}`); };
+  eq(potPayouts([{ pid: 'me', side: 'andar', amount: 100 }, { pid: 'op', side: 'bahar', amount: 100 }], 'andar'), { me: 200, op: 0 }, 'one vs one');
+  eq(potPayouts([{ pid: 'me', side: 'andar', amount: 100 }, { pid: 'op', side: 'bahar', amount: 100 }], 'bahar'), { me: 0, op: 200 }, 'one vs one, I lose');
+  eq(potPayouts([{ pid: 'a', side: 'andar', amount: 300 }, { pid: 'b', side: 'andar', amount: 100 }, { pid: 'c', side: 'bahar', amount: 200 }], 'andar'), { a: 450, b: 150, c: 0 }, 'split by stake');
+  eq(potPayouts([{ pid: 'a', side: 'andar', amount: 50 }, { pid: 'b', side: 'andar', amount: 50 }], 'bahar'), { a: 50, b: 50 }, 'nobody won, refund');
+  eq(potPayouts([{ pid: 'a', side: 'dragon', amount: 50 }, { pid: 'b', side: 'tiger', amount: 30 }, { pid: 'c', side: 'tie', amount: 10 }], 'tie'), { a: 0, b: 0, c: 90 }, 'tie takes all');
+  // coins are conserved with awkward splits
+  for (let t = 0; t < 300; t++) {
+    const bets = Array.from({ length: 2 + (t % 7) }, (_, i) => ({ pid: 'p' + i, side: Math.random() < 0.5 ? 'andar' : 'bahar', amount: 10 * (1 + Math.floor(Math.random() * 37)) }));
+    const out = potPayouts(bets, 'andar');
+    const inSum = bets.reduce((x, b) => x + b.amount, 0), outSum = Object.values(out).reduce((x, v) => x + v, 0);
+    if (inSum !== outSum) { errs.push(`coins not conserved ${inSum} vs ${outSum}`); break; }
+  }
+  // the engine uses pot mode end to end
+  const rules = { ...GAMES['dragon-tiger'], config: { dealMs: 20 } };
+  const store = new LocalStore(newRoom('dragon-tiger', 'a', 'A', Date.now(), 1000, 'pot'));
+  const A = new RoomClient(store, 'a', rules), B = new RoomClient(store, 'b', rules);
+  await sleep(10); await B.join('B'); await A.start(); await sleep(10);
+  await A.placeBet('dragon', 100); await B.placeBet('tiger', 100);
+  for (let j = 0; j < 400; j++) { await sleep(15); if (store.state.round.phase === 'result' && store.state.round.settled) break; }
+  await sleep(30);
+  const w = store.state.round.winner, ca = store.state.players.a.chips, cb = store.state.players.b.chips;
+  const want = w === 'dragon' ? [1100, 900] : w === 'tiger' ? [900, 1100] : [1000, 1000];
+  if (ca !== want[0] || cb !== want[1]) errs.push(`pot round wrong: ${w} ${ca}/${cb}`);
+  if (ca + cb !== 2000) errs.push('room total changed in pot mode');
+  [A, B].forEach((x) => x.destroy());
+  console.log(errs.length ? 'players vs players: FAILED\n  ' + errs.join('\n  ') : `players vs players: all checks passed (${w} won, ${ca}/${cb})`);
+  failed += errs.length;
 }
 
 // Starting coins chosen by the room creator.
