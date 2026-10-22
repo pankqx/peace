@@ -1,0 +1,19 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$code": {
+        ".read": "$code.matches(/^[A-Z]{4}$/)",
+        ".write": "$code.matches(/^[A-Z]{4}$/)",
+        "players": {
+          "$pid": {
+            "chips": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000000" },
+            "name": { ".validate": "newData.isString() && newData.val().length <= 16" }
+          },
+          ".validate": "newData.numChildren() <= 40"
+        }
+      }
+    }
+  }
+}
