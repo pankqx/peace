@@ -1,29 +1,28 @@
-// Andar Bahar game rules + room client. Pure logic, no DOM — runs the same in solo and online.
+// Shared table-game engine: rooms, betting, host-driven dealing, payouts, host takeover, bots.
+// Each game supplies a small "rules" object (see andar-bahar/rules.js, dragon-tiger/rules.js).
 //
 // Room shape:
-//   meta    { host, created, game: 'andar-bahar' }
-//   players { [pid]: { name, chips, joined, online, bot? } }
-//   round   { n, phase: lobby|betting|dealing|result, middle, cards[], startedAt, endsAt, nextAt,
-//             winner, winIndex, net{pid: +/-chips}, settled }
+//   meta    { host, created, game }
+//   players { [pid]: { name, chips, joined, online, bot? } }   // chips = coins
+//   round   { n, phase: lobby|betting|dealing|result, startedAt, endsAt, nextAt,
+//             winner, settled, net{pid: +/-}, ...game fields }
 //   bets    { [pid]: { side, amount, round } }
-//   history { [n]: 'A' | 'B' }
-import { SUITS, RANKS, rankOf } from '../../cards.js';
-import { toList } from '../../store.js';
+//   history { [n]: mark }
+import { SUITS, RANKS } from '../cards.js';
 
-export const CONFIG = {
+export const BASE = {
   startChips: 1000,
   refillChips: 500,
   chipValues: [10, 50, 100, 500],
   betMs: 15000,
-  minBetMs: 4000, // when everyone has bet, deal after at least this long
+  minBetMs: 4000,
   dealMs: 750,
   firstDealDelay: 600,
   resultMs: 5500,
   hostTimeoutMs: 4000,
   maxPlayers: 12,
+  historyKeep: 30,
 };
-
-export const SIDES = { andar: 'Andar', bahar: 'Bahar' };
 
 export function fullDeck() {
   const d = [];
@@ -42,11 +41,6 @@ export function shuffle(arr) {
   return a;
 }
 
-// First card goes to Andar, so Andar wins slightly more often and pays a bit less.
-export const sideForIndex = (i) => (i % 2 === 0 ? 'andar' : 'bahar');
-export const winAmount = (side, amount) =>
-  side === 'andar' ? amount + Math.floor(amount * 0.9) : amount * 2;
-
 export function makeCode() {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const rnd = new Uint32Array(4);
@@ -54,18 +48,20 @@ export function makeCode() {
   return Array.from(rnd, (v) => letters[v % letters.length]).join('');
 }
 
-export function newRoom(pid, name, now) {
+export function newRoom(game, pid, name, now) {
   return {
-    meta: { host: pid, created: now, game: 'andar-bahar' },
-    players: { [pid]: { name, chips: CONFIG.startChips, joined: now, online: true } },
+    meta: { host: pid, created: now, game },
+    players: { [pid]: { name, chips: BASE.startChips, joined: now, online: true } },
     round: { n: 0, phase: 'lobby' },
   };
 }
 
 export class RoomClient {
-  constructor(store, pid) {
+  constructor(store, pid, rules) {
     this.store = store;
     this.pid = pid;
+    this.rules = rules;
+    this.cfg = { ...BASE, ...(rules.config || {}) };
     this.state = null;
     this.busy = false;
     this.deck = null;
@@ -77,7 +73,7 @@ export class RoomClient {
       this.listeners.forEach((fn) => fn(s));
       this.tick();
     });
-    this.timer = setInterval(() => this.tick(), 250);
+    this.timer = setInterval(() => this.tick(), 200);
   }
 
   onChange(fn) { this.listeners.add(fn); if (this.state) fn(this.state); return () => this.listeners.delete(fn); }
@@ -87,20 +83,20 @@ export class RoomClient {
   get isHost() { return !!(this.state && this.state.meta && this.state.meta.host === this.pid); }
   myBet(s = this.state) {
     const b = s && s.bets && s.bets[this.pid];
-    return b && b.round === this.round.n ? b : null;
+    return b && b.round === ((s && s.round && s.round.n) || 0) ? b : null;
   }
 
   async join(name, extra = {}) {
     const s = this.state || {};
     const existing = s.players && s.players[this.pid];
     const count = Object.values(s.players || {}).filter((p) => p.online !== false).length;
-    if (!existing && count >= CONFIG.maxPlayers) throw new Error('This room is full. Ask the host for a new room.');
+    if (!existing && count >= this.cfg.maxPlayers) throw new Error('This room is full. Ask the host for a new room.');
     await this.store.update({
       [`players/${this.pid}`]: {
         ...(existing || {}),
         ...extra,
         name,
-        chips: existing ? existing.chips : CONFIG.startChips,
+        chips: existing ? existing.chips : this.cfg.startChips,
         joined: existing ? existing.joined : this.now(),
         online: true,
       },
@@ -119,15 +115,14 @@ export class RoomClient {
     const n = this.round.n;
     const cur = this.myBet();
     if (cur && cur.side !== side) {
-      // Move the whole bet to the other side.
       await this.store.update({ [`bets/${this.pid}/side`]: side });
-      return { ok: true };
+      return { ok: true, moved: true };
     }
     const paid = await this.store.transaction(`players/${this.pid}/chips`, (c) => {
       if (c == null) return c;
       return c >= amount ? c - amount : undefined;
     });
-    if (!paid.committed) return { ok: false, reason: 'Not enough chips for that.' };
+    if (!paid.committed) return { ok: false, reason: 'Not enough coins for that.' };
     await this.store.transaction(`bets/${this.pid}`, (b) => ({
       side,
       amount: (b && b.round === n ? b.amount : 0) + amount,
@@ -149,12 +144,16 @@ export class RoomClient {
 
   async refill() {
     await this.store.transaction(`players/${this.pid}/chips`, (c) =>
-      c == null ? c : c < CONFIG.chipValues[0] ? CONFIG.refillChips : undefined);
+      c == null ? c : c < this.cfg.chipValues[0] ? this.cfg.refillChips : undefined);
   }
 
   async start() { if (this.isHost && this.round.phase === 'lobby') await this.newRound(); }
   async dealNow() {
     if (this.isHost && this.round.phase === 'betting') await this.store.update({ 'round/endsAt': this.now() });
+  }
+  async leave() {
+    try { await this.store.update({ [`players/${this.pid}/online`]: false }); } catch {}
+    this.destroy();
   }
 
   // ---------- host loop ----------
@@ -169,11 +168,11 @@ export class RoomClient {
       const now = this.now();
       if (r.phase === 'betting') {
         const everyoneBet = this.everyoneBet(s, r.n);
-        if (now >= r.endsAt || (everyoneBet && now >= r.startedAt + CONFIG.minBetMs)) {
-          await this.store.update({ 'round/phase': 'dealing', 'round/nextAt': now + CONFIG.firstDealDelay });
+        if (now >= r.endsAt || (everyoneBet && now >= r.startedAt + this.cfg.minBetMs)) {
+          await this.store.update({ 'round/phase': 'dealing', 'round/nextAt': now + this.cfg.firstDealDelay });
         }
       } else if (r.phase === 'dealing') {
-        if (now >= (r.nextAt || 0)) await this.dealOne(s, r, now);
+        if (now >= (r.nextAt || 0)) await this.dealOne(r, now);
       } else if (r.phase === 'result') {
         if (!r.settled) await this.settle(s, r);
         else if (now >= r.endsAt) await this.newRound();
@@ -188,7 +187,7 @@ export class RoomClient {
     if (!active.length) return false;
     return active.every(([id, p]) => {
       const b = s.bets && s.bets[id];
-      return (b && b.round === n) || p.chips < CONFIG.chipValues[0];
+      return (b && b.round === n) || p.chips < this.cfg.chipValues[0];
     });
   }
 
@@ -198,7 +197,7 @@ export class RoomClient {
     if (hp && hp.online !== false) { this.hostMissingSince = null; return; }
     const now = this.now();
     if (!this.hostMissingSince) this.hostMissingSince = now;
-    if (now - this.hostMissingSince < CONFIG.hostTimeoutMs) return;
+    if (now - this.hostMissingSince < this.cfg.hostTimeoutMs) return;
     const next = Object.entries(s.players || {})
       .filter(([, p]) => p.online !== false && !p.bot)
       .sort((a, b) => a[1].joined - b[1].joined)[0];
@@ -209,33 +208,30 @@ export class RoomClient {
 
   deckFor(r) {
     if (this.deckRound !== r.n || !this.deck) {
-      // Fresh host (or host takeover): shuffle every card not yet seen this round.
-      const seen = new Set([r.middle, ...toList(r.cards)]);
+      // Fresh host (or a takeover): shuffle every card not yet shown this round.
+      const seen = new Set(this.rules.seen(r));
       this.deck = shuffle(fullDeck().filter((c) => !seen.has(c)));
       this.deckRound = r.n;
     }
     return this.deck;
   }
 
-  async dealOne(s, r, now) {
-    const cards = toList(r.cards);
+  async dealOne(r, now) {
     const deck = this.deckFor(r);
     const card = deck.pop();
     if (!card) return;
-    const i = cards.length;
-    const updates = { [`round/cards/${i}`]: card, 'round/nextAt': now + CONFIG.dealMs };
-    if (rankOf(card) === rankOf(r.middle)) {
-      const winner = sideForIndex(i);
+    const step = this.rules.dealStep(r, card);
+    const updates = { 'round/nextAt': now + (step.delay || this.cfg.dealMs) };
+    for (const [k, v] of Object.entries(step.set)) updates[`round/${k}`] = v;
+    if (step.done) {
       Object.assign(updates, {
         'round/phase': 'result',
-        'round/winner': winner,
-        'round/winIndex': i,
+        'round/winner': step.winner,
         'round/settled': false,
-        'round/endsAt': now + CONFIG.resultMs,
-        [`history/${r.n}`]: winner === 'andar' ? 'A' : 'B',
+        'round/endsAt': now + this.cfg.resultMs,
+        [`history/${r.n}`]: this.rules.mark(step.winner),
       });
-      // Keep only the last 30 results.
-      if (r.n > 30) updates[`history/${r.n - 30}`] = null;
+      if (r.n > this.cfg.historyKeep) updates[`history/${r.n - this.cfg.historyKeep}`] = null;
     }
     await this.store.update(updates);
   }
@@ -245,15 +241,13 @@ export class RoomClient {
     const payouts = [];
     for (const [pid, b] of Object.entries(s.bets || {})) {
       if (!b || b.round !== r.n) continue;
-      if (b.side === r.winner) {
-        const win = winAmount(b.side, b.amount);
-        net[pid] = win - b.amount;
-        payouts.push([pid, win]);
-      } else net[pid] = -b.amount;
+      const back = this.rules.payout(b, r.winner);
+      net[pid] = back - b.amount;
+      if (back > 0) payouts.push([pid, back]);
     }
     await this.store.update({ 'round/settled': true, 'round/net': Object.keys(net).length ? net : null });
-    for (const [pid, win] of payouts) {
-      await this.store.transaction(`players/${pid}/chips`, (c) => (c == null ? c : c + win));
+    for (const [pid, back] of payouts) {
+      await this.store.transaction(`players/${pid}/chips`, (c) => (c == null ? c : c + back));
     }
   }
 
@@ -261,11 +255,11 @@ export class RoomClient {
     const now = this.now();
     const n = (this.round.n || 0) + 1;
     const deck = shuffle(fullDeck());
-    const middle = deck.pop();
+    const fields = this.rules.startRound(deck);
     this.deck = deck;
     this.deckRound = n;
     await this.store.update({
-      round: { n, phase: 'betting', middle, startedAt: now, endsAt: now + CONFIG.betMs },
+      round: { ...fields, n, phase: 'betting', startedAt: now, endsAt: now + this.cfg.betMs },
       bets: null,
     });
   }
@@ -277,7 +271,7 @@ export class RoomClient {
   }
 }
 
-// Simple bots for solo mode: they bet a random chip on a random side each round.
+// Solo-mode bots: a random coin on a side picked by the game's botSide().
 export function runBot(client) {
   let lastRound = -1;
   const t = setInterval(async () => {
@@ -285,17 +279,16 @@ export function runBot(client) {
     const me = client.me;
     if (!me || r.phase !== 'betting' || r.n === lastRound) return;
     lastRound = r.n;
-    if (me.chips < CONFIG.chipValues[0]) { await client.refill(); return; }
-    if (Math.random() < 0.15) return; // sits this one out
-    const wait = 1200 + Math.random() * 6000;
+    if (me.chips < client.cfg.chipValues[0]) { await client.refill(); return; }
+    if (Math.random() < 0.15) return;
     setTimeout(async () => {
-      const options = CONFIG.chipValues.filter((v) => v <= (client.me?.chips || 0) && v <= 100);
+      const options = client.cfg.chipValues.filter((v) => v <= (client.me?.chips || 0) && v <= 100);
       if (!options.length) return;
       const amount = options[Math.floor(Math.random() * options.length)];
-      const side = Math.random() < 0.5 ? 'andar' : 'bahar';
+      const side = client.rules.botSide();
       await client.placeBet(side, amount);
       if (Math.random() < 0.3) await client.placeBet(side, options[0]);
-    }, wait);
+    }, 1200 + Math.random() * 6000);
   }, 400);
   return () => clearInterval(t);
 }
