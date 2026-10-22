@@ -1,11 +1,11 @@
 <!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
-<style>body{background:#0b3a40;margin:0;padding:20px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+<style>body{background:#0b3a40;margin:0;padding:20px;display:grid;grid-template-columns:repeat(13,1fr);gap:10px}
 .card{aspect-ratio:5/7}.card-inner{position:relative;width:100%;height:100%}.card-face{position:absolute;inset:0}.card-back{display:none}
 .card svg{width:100%;height:100%;display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}.b .card-front{display:none}.b .card-back{display:block}</style></head>
 <body><script type="module">
 import {installCardDefs,cardEl,SUITS,RANKS} from '../js/cards.js';
 installCardDefs();
-for(const c of ['KH','QS','JD'])document.body.append(cardEl(c));
+for(const s of SUITS)for(const r of RANKS)document.body.append(cardEl(r+s));
 const b=cardEl('AS');b.classList.add('b');document.body.append(b);
 </script></body></html>
