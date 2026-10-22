@@ -12,8 +12,8 @@ import { SUITS, RANKS } from '../cards.js';
 
 export const BASE = {
   startChips: 1000,
-  refillChips: 500,
-  chipValues: [10, 50, 100, 500],
+  minStart: 100,
+  maxStart: 1000000,
   betMs: 15000,
   minBetMs: 4000,
   dealMs: 750,
@@ -48,10 +48,26 @@ export function makeCode() {
   return Array.from(rnd, (v) => letters[v % letters.length]).join('');
 }
 
-export function newRoom(game, pid, name, now) {
+// Starting coins the room creator picked (default 1,000), kept within sane limits.
+export function clampStart(v) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n <= 0) return BASE.startChips;
+  return Math.min(BASE.maxStart, Math.max(BASE.minStart, n));
+}
+
+// Coin buttons grow with the room's starting coins so big rooms don't need 100 taps.
+export function coinValuesFor(start) {
+  if (start >= 50000) return [500, 1000, 5000, 10000];
+  if (start >= 5000) return [100, 500, 1000, 5000];
+  if (start >= 2000) return [50, 100, 500, 1000];
+  return [10, 50, 100, 500];
+}
+
+export function newRoom(game, pid, name, now, startCoins = BASE.startChips) {
+  const start = clampStart(startCoins);
   return {
-    meta: { host: pid, created: now, game },
-    players: { [pid]: { name, chips: BASE.startChips, joined: now, online: true } },
+    meta: { host: pid, created: now, game, startCoins: start },
+    players: { [pid]: { name, chips: start, joined: now, online: true } },
     round: { n: 0, phase: 'lobby' },
   };
 }
@@ -81,6 +97,11 @@ export class RoomClient {
   get round() { return (this.state && this.state.round) || { n: 0, phase: 'lobby' }; }
   get me() { return this.state && this.state.players && this.state.players[this.pid]; }
   get isHost() { return !!(this.state && this.state.meta && this.state.meta.host === this.pid); }
+  startCoins() { return clampStart((this.state && this.state.meta && this.state.meta.startCoins) || this.cfg.startChips); }
+  coinValues() { return coinValuesFor(this.startCoins()); }
+  minCoin() { return this.coinValues()[0]; }
+  refillAmount() { return Math.max(this.minCoin(), Math.round(this.startCoins() / 2)); }
+
   myBet(s = this.state) {
     const b = s && s.bets && s.bets[this.pid];
     return b && b.round === ((s && s.round && s.round.n) || 0) ? b : null;
@@ -96,7 +117,7 @@ export class RoomClient {
         ...(existing || {}),
         ...extra,
         name,
-        chips: existing ? existing.chips : this.cfg.startChips,
+        chips: existing ? existing.chips : this.startCoins(),
         joined: existing ? existing.joined : this.now(),
         online: true,
       },
@@ -144,7 +165,17 @@ export class RoomClient {
 
   async refill() {
     await this.store.transaction(`players/${this.pid}/chips`, (c) =>
-      c == null ? c : c < this.cfg.chipValues[0] ? this.cfg.refillChips : undefined);
+      c == null ? c : c < this.minCoin() ? this.refillAmount() : undefined);
+  }
+
+  // Host only, before the first round: change everyone's starting coins.
+  async setStartCoins(value) {
+    if (!this.isHost || this.round.phase !== 'lobby') return false;
+    const start = clampStart(value);
+    const updates = { 'meta/startCoins': start };
+    for (const id of Object.keys(this.state.players || {})) updates[`players/${id}/chips`] = start;
+    await this.store.update(updates);
+    return true;
   }
 
   async start() { if (this.isHost && this.round.phase === 'lobby') await this.newRound(); }
@@ -187,7 +218,7 @@ export class RoomClient {
     if (!active.length) return false;
     return active.every(([id, p]) => {
       const b = s.bets && s.bets[id];
-      return (b && b.round === n) || p.chips < this.cfg.chipValues[0];
+      return (b && b.round === n) || p.chips < this.minCoin();
     });
   }
 
@@ -279,10 +310,10 @@ export function runBot(client) {
     const me = client.me;
     if (!me || r.phase !== 'betting' || r.n === lastRound) return;
     lastRound = r.n;
-    if (me.chips < client.cfg.chipValues[0]) { await client.refill(); return; }
+    if (me.chips < client.minCoin()) { await client.refill(); return; }
     if (Math.random() < 0.15) return;
     setTimeout(async () => {
-      const options = client.cfg.chipValues.filter((v) => v <= (client.me?.chips || 0) && v <= 100);
+      const options = client.coinValues().slice(0, 3).filter((v) => v <= (client.me?.chips || 0));
       if (!options.length) return;
       const amount = options[Math.floor(Math.random() * options.length)];
       const side = client.rules.botSide();

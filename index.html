@@ -51,6 +51,15 @@
           <span>Your name</span>
           <input id="name" name="name" maxlength="16" placeholder="e.g. Pank" required>
         </label>
+        <details class="room-settings" id="room-settings">
+          <summary><span>Starting coins</span><b id="start-label">1,000</b></summary>
+          <div class="start-pills" role="radiogroup" aria-label="Starting coins" id="start-pills"></div>
+          <label class="field">
+            <span>Or type your own amount (100 to 10,00,000)</span>
+            <input id="start-custom" type="number" inputmode="numeric" min="100" max="1000000" step="100" placeholder="e.g. 2500">
+          </label>
+          <p class="settings-note">Used when you create a room or practise solo. You can still change it in the lobby before the game starts.</p>
+        </details>
         <button class="btn btn-gold" id="create-btn" type="submit" data-action="create">Create a room</button>
         <div class="join-row">
           <label class="field field-code">

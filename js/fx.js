@@ -97,7 +97,7 @@ export function coinBurst(fromEl, toEl, count = 14) {
   if (!fromEl || !toEl || reduced()) return;
   const a = center(fromEl.getBoundingClientRect()), b = center(toEl.getBoundingClientRect());
   for (let i = 0; i < count; i++) {
-    const c = coinNode(100, 22 + Math.random() * 10);
+    const c = coinNode(2, 22 + Math.random() * 10);
     const ang = Math.random() * Math.PI * 2, dist = 50 + Math.random() * 90;
     const p = { x: a.x + Math.cos(ang) * dist, y: a.y + Math.sin(ang) * dist - 30 };
     c.animate([

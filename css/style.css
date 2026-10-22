@@ -348,11 +348,11 @@ button { cursor: pointer; }
 }
 .coin::before { content: ''; position: absolute; inset: 9px; border-radius: 50%; border: 1.5px dashed rgba(0, 0, 0, .28); }
 .coin span { position: relative; text-shadow: 0 1px 0 rgba(255, 255, 255, .45); }
-.coin[data-v="10"] { --m1: #FBD3AE; --m2: #C47A42; --m3: #6E3512; --ink: #2d1204; }
-.coin[data-v="50"] { --m1: #FFFFFF; --m2: #BFC6CF; --m3: #59616B; --ink: #1d232a; }
-.coin[data-v="100"] { --m1: #FFF2C2; --m2: #E0AE45; --m3: #8E6413; --ink: #3b2603; }
-.coin[data-v="500"] { --m1: #EBD8FF; --m2: #9B6BD8; --m3: #3F2170; --ink: #fff; }
-.coin[data-v="500"] span { text-shadow: 0 1px 0 rgba(0, 0, 0, .4); }
+.coin[data-t="0"] { --m1: #FBD3AE; --m2: #C47A42; --m3: #6E3512; --ink: #2d1204; }
+.coin[data-t="1"] { --m1: #FFFFFF; --m2: #BFC6CF; --m3: #59616B; --ink: #1d232a; }
+.coin[data-t="2"] { --m1: #FFF2C2; --m2: #E0AE45; --m3: #8E6413; --ink: #3b2603; }
+.coin[data-t="3"] { --m1: #EBD8FF; --m2: #9B6BD8; --m3: #3F2170; --ink: #fff; }
+.coin[data-t="3"] span { text-shadow: 0 1px 0 rgba(0, 0, 0, .4); }
 .coin[aria-checked="true"] { transform: translateY(-7px) scale(1.06); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .28), inset 0 0 0 6px rgba(0, 0, 0, .14), 0 0 0 3px var(--brass-light), 0 0 22px rgba(243, 220, 154, .55), 0 12px 18px -6px rgba(0, 0, 0, .7); }
 .coin:disabled { opacity: .35; cursor: default; }
 .chip-clear { height: 42px; padding: 0 16px; border-radius: 99px; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .2); font-weight: 700; }
@@ -363,9 +363,29 @@ button { cursor: pointer; }
   background: radial-gradient(circle at 34% 28%, #FFF2C2, #E0AE45 52%, #8E6413);
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .35), 0 4px 10px rgba(0, 0, 0, .5);
 }
-.fly-coin[data-v="10"] { background: radial-gradient(circle at 34% 28%, #FBD3AE, #C47A42 52%, #6E3512); }
-.fly-coin[data-v="50"] { background: radial-gradient(circle at 34% 28%, #fff, #BFC6CF 52%, #59616B); }
-.fly-coin[data-v="500"] { background: radial-gradient(circle at 34% 28%, #EBD8FF, #9B6BD8 52%, #3F2170); }
+.fly-coin[data-v="0"] { background: radial-gradient(circle at 34% 28%, #FBD3AE, #C47A42 52%, #6E3512); }
+.fly-coin[data-v="1"] { background: radial-gradient(circle at 34% 28%, #fff, #BFC6CF 52%, #59616B); }
+.fly-coin[data-v="3"] { background: radial-gradient(circle at 34% 28%, #EBD8FF, #9B6BD8 52%, #3F2170); }
+
+/* starting coins setting */
+.room-settings { border-radius: 14px; background: rgba(0, 0, 0, .2); border: 1px solid rgba(255, 255, 255, .1); padding: 0 14px; }
+.room-settings[open] { padding-bottom: 14px; }
+.room-settings summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px;
+  cursor: pointer; list-style: none; font-size: 15px; color: var(--muted);
+}
+.room-settings summary::-webkit-details-marker { display: none; }
+.room-settings summary b { display: inline-flex; align-items: center; gap: 6px; color: var(--brass-light); font-size: 17px; }
+.room-settings summary b::before { content: ''; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #FFF2C2, #E0AE45 50%, #8E6413); }
+.room-settings summary b::after { content: ''; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); margin: 0 2px 4px 6px; transition: transform .2s; }
+.room-settings[open] summary b::after { transform: rotate(225deg); margin-bottom: -2px; }
+.start-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+.start-pill { height: 40px; padding: 0 14px; border-radius: 99px; border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .05); font-weight: 700; }
+.start-pill[aria-checked="true"] { background: linear-gradient(180deg, #FCE7A6, #D9B45E 55%, #B38A36); color: #2A1C02; border-color: transparent; }
+.room-settings .field input { height: 46px; font-size: 17px; }
+.settings-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.start-edit { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 6px 0 14px; border-radius: 14px; background: rgba(0, 0, 0, .25); border: 1px solid rgba(255, 255, 255, .14); font-size: 14px; color: var(--muted); }
+.start-edit select { height: 34px; border-radius: 10px; border: 0; padding: 0 8px; font: inherit; font-weight: 800; color: #2A1C02; background: linear-gradient(180deg, #FCE7A6, #D9B45E); }
 
 /* ---------- side info ---------- */
 .side-info { display: grid; gap: 18px; padding: 0 8px 24px; align-content: start; }

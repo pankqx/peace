@@ -9,6 +9,7 @@ Share a 4-letter room code to play together. Coins are just for fun, no real mon
 
 ## Play
 - Online: open the site, type your name, **Create a room**, share the link.
+- Starting coins: 1,000 each by default. The room creator can pick another amount under **Starting coins** (or change it in the lobby before the game starts).
 - Solo: **Practise solo with 3 bots** works without any setup.
 
 ## Turning on online rooms

@@ -1,7 +1,7 @@
 // Multiplayer simulation: 3 clients share one in-memory store, the host leaves mid-game.
 // Run: node dev/test-engine.mjs
 import { LocalStore, toList } from '../js/store.js';
-import { RoomClient, BASE, newRoom } from '../js/games/core.js';
+import { RoomClient, BASE, newRoom, coinValuesFor } from '../js/games/core.js';
 import { GAMES } from '../js/games/index.js';
 import { rankOf } from '../js/cards.js';
 import { cardValue } from '../js/games/dragon-tiger/rules.js';
@@ -58,6 +58,32 @@ async function play(gameId, plan) {
   if (store.state.meta.host !== 'p2') errors.push('host takeover did not happen');
   console.log(errors.length ? `${gameId}: FAILED\n  ` + errors.join('\n  ') : `${gameId}: all checks passed (${rounds} rounds)`);
   failed += errors.length;
+}
+
+// Starting coins chosen by the room creator.
+{
+  const rules = GAMES['andar-bahar'];
+  const store = new LocalStore(newRoom('andar-bahar', 'h', 'Host', Date.now(), 5000));
+  const h = new RoomClient(store, 'h', rules), g = new RoomClient(store, 'g', rules);
+  await sleep(10);
+  await g.join('Guest');
+  const errs = [];
+  if (store.state.players.g.chips !== 5000) errs.push('joiner did not get 5,000');
+  if (g.coinValues().join() !== coinValuesFor(5000).join()) errs.push('coin values not scaled');
+  if (!(await g.setStartCoins(200))) {} else errs.push('non-host changed start coins');
+  await h.setStartCoins(2000);
+  await sleep(5);
+  if (store.state.meta.startCoins !== 2000 || store.state.players.g.chips !== 2000 || store.state.players.h.chips !== 2000) errs.push('lobby reset failed');
+  await h.start();
+  await sleep(5);
+  if (await h.setStartCoins(9000)) errs.push('start coins changed after game started');
+  const def = new LocalStore(newRoom('andar-bahar', 'x', 'X', Date.now()));
+  if (def.state.players.x.chips !== 1000) errs.push('default is not 1,000');
+  const huge = new LocalStore(newRoom('andar-bahar', 'y', 'Y', Date.now(), 99999999));
+  if (huge.state.players.y.chips !== 1000000) errs.push('not capped at 10,00,000');
+  [h, g].forEach((x) => x.destroy());
+  console.log(errs.length ? 'starting coins: FAILED\n  ' + errs.join('\n  ') : 'starting coins: all checks passed');
+  failed += errs.length;
 }
 
 await play('andar-bahar', () => ['andar', 'bahar', 'andar']);

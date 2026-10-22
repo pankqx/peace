@@ -1,7 +1,7 @@
 import { installCardDefs, cardEl } from './cards.js';
 import { LocalStore } from './store.js';
 import { onlineReady, openFirebaseStore } from './firebase-store.js';
-import { RoomClient, newRoom, makeCode, runBot } from './games/core.js';
+import { RoomClient, newRoom, makeCode, runBot, clampStart } from './games/core.js';
 import { GAMES, GAME_LIST } from './games/index.js';
 import { VIEWS } from './views.js';
 import { sound, flyCoin, coinBurst, flash } from './fx.js';
@@ -44,6 +44,33 @@ const HERO = {
   'dragon-tiger': [['KH', false, 'is-match'], ['', true], ['7S', false]],
 };
 let selectedGame = GAMES[recall('peace.game')] ? recall('peace.game') : 'andar-bahar';
+const START_PRESETS = [500, 1000, 2000, 5000, 10000];
+let startCoins = clampStart(recall('peace.start') || 1000);
+const coinLabel = (v) => (v >= 1000 && v % 1000 === 0 ? `${v / 1000}K` : String(v));
+
+function setStart(v, fromCustom = false) {
+  startCoins = clampStart(v);
+  remember('peace.start', startCoins);
+  $('start-label').textContent = fmt(startCoins);
+  $('start-pills').querySelectorAll('.start-pill').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.v) === startCoins)));
+  if (!fromCustom) $('start-custom').value = START_PRESETS.includes(startCoins) ? '' : startCoins;
+}
+
+function setupStartCoins() {
+  $('start-pills').innerHTML = START_PRESETS.map((v) =>
+    `<button class="start-pill" type="button" role="radio" data-v="${v}" aria-checked="false">${fmt(v)}</button>`).join('');
+  $('start-pills').addEventListener('click', (e) => {
+    const b = e.target.closest('.start-pill');
+    if (b) setStart(Number(b.dataset.v));
+  });
+  $('start-custom').addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    if (v >= 1) setStart(v, true);
+  });
+  $('start-custom').addEventListener('change', (e) => { if (e.target.value) setStart(e.target.value); });
+  if (startCoins !== 1000) $('room-settings').open = true;
+  setStart(startCoins);
+}
 
 function showGameInfo(id) {
   const g = GAMES[id];
@@ -76,6 +103,7 @@ function setupHome() {
     if (p) showGameInfo(p.dataset.game);
   });
   showGameInfo(selectedGame);
+  setupStartCoins();
 
   $('name').value = recall('peace.name') || '';
   const params = new URLSearchParams(location.search);
@@ -126,7 +154,7 @@ async function enterOnline(code, name, create) {
       store = await openFirebaseStore(code);
       if (!(await store.exists())) break;
     }
-    await store.create(newRoom(selectedGame, PID, name, store.now()));
+    await store.create(newRoom(selectedGame, PID, name, store.now(), startCoins));
   } else {
     store = await openFirebaseStore(code);
     if (!(await store.exists())) throw new Error(`No room called ${code}. Check the code and try again.`);
@@ -150,7 +178,7 @@ function waitForState(client) {
 
 async function startSolo(name) {
   const rules = GAMES[selectedGame];
-  const store = new LocalStore(newRoom(rules.id, PID, name, Date.now()));
+  const store = new LocalStore(newRoom(rules.id, PID, name, Date.now(), startCoins));
   const client = new RoomClient(store, PID, rules);
   const bots = [['bot-ravi', 'Ravi'], ['bot-anu', 'Anu'], ['bot-kabir', 'Kabir']].map(([id, n]) => {
     const b = new RoomClient(store, id, rules);
@@ -184,7 +212,7 @@ class GameView {
     this.opts = opts;
     this.cfg = client.cfg;
     this.chip = Number(recall('peace.chip')) || 50;
-    if (!this.cfg.chipValues.includes(this.chip)) this.chip = 50;
+    this.start = null;
     this.view = new VIEWS[this.rules.id]($('table'), this.rules);
     this.lastChips = null;
     this.resultRound = -1;
@@ -193,7 +221,6 @@ class GameView {
     $('game').dataset.game = this.rules.id;
     $('rules-mini').textContent = `${this.rules.steps.map(([b]) => b).join(' ')} ${this.rules.payNote}`;
     this.buildSides();
-    this.buildChips();
     this.bind();
     client.onChange((s) => s && this.render(s));
     const loop = () => { this.tickTimer(); requestAnimationFrame(loop); };
@@ -213,8 +240,10 @@ class GameView {
   }
 
   buildChips() {
-    $('chip-row').innerHTML = this.cfg.chipValues.map((v) =>
-      `<button class="coin" type="button" role="radio" data-v="${v}" aria-checked="${v === this.chip}" aria-label="${v} coins"><span>${v}</span></button>`).join('') +
+    const values = this.c.coinValues();
+    if (!values.includes(this.chip)) this.chip = values[1];
+    $('chip-row').innerHTML = values.map((v, i) =>
+      `<button class="coin" type="button" role="radio" data-v="${v}" data-t="${i}" aria-checked="${v === this.chip}" aria-label="${fmt(v)} coins"><span>${coinLabel(v)}</span></button>`).join('') +
       `<button class="chip-clear" type="button" id="clear-btn" hidden>Clear bet</button>`;
   }
 
@@ -235,7 +264,8 @@ class GameView {
       const res = await this.c.placeBet(side, this.chip);
       if (!res.ok) { toast(res.reason); return; }
       sound.play('coin');
-      if (!res.moved) flyCoin($('chip-row').querySelector(`.coin[data-v="${this.chip}"]`), target, this.chip);
+      const coinBtn = $('chip-row').querySelector(`.coin[data-v="${this.chip}"]`);
+      if (!res.moved) flyCoin(coinBtn, target, coinBtn ? coinBtn.dataset.t : 2);
       if (navigator.vibrate) navigator.vibrate(12);
     };
     document.addEventListener('click', (e) => {
@@ -249,6 +279,9 @@ class GameView {
     $('share-btn').addEventListener('click', () => this.share());
     $('mute-btn').addEventListener('click', () => { sound.toggle(); this.syncMute(); });
     $('leave-btn').addEventListener('click', () => this.leave());
+    $('table').addEventListener('change', (e) => {
+      if (e.target.id === 'start-select') this.c.setStartCoins(Number(e.target.value));
+    });
     $('table').addEventListener('click', (e) => {
       const a = e.target.closest('[data-act]');
       if (!a) return;
@@ -291,6 +324,12 @@ class GameView {
     const r = s.round || { n: 0, phase: 'lobby' };
     const me = s.players && s.players[PID];
     const myBet = this.c.myBet(s);
+    if (this.start !== this.c.startCoins()) {
+      const changed = this.start !== null;
+      this.start = this.c.startCoins();
+      this.buildChips();
+      if (changed) toast(`Starting coins set to ${fmt(this.start)}. Everyone has been reset.`);
+    }
 
     if (me) {
       $('my-chips').textContent = fmt(me.chips);
@@ -335,8 +374,12 @@ class GameView {
     $('timer').hidden = r.phase !== 'betting';
     if (r.phase === 'lobby') {
       const count = Object.values(s.players || {}).filter((p) => p.online !== false).length;
-      html = `Waiting for players<small>${count} at the table. Share the room code <b>${esc(this.opts.code)}</b> with friends.</small>`;
-      act = (host ? `<button class="btn btn-gold btn-small" data-act="start">Start game</button>` : '') +
+      const start = this.c.startCoins();
+      html = `Waiting for players<small>${count} at the table. Share the room code <b>${esc(this.opts.code)}</b> with friends.</small><small>Everyone starts with ${fmt(start)} coins.</small>`;
+      const presets = [...new Set([...START_PRESETS, start])].sort((a, b) => a - b);
+      act = (host ? `<button class="btn btn-gold btn-small" data-act="start">Start game</button>
+        <label class="start-edit"><span>Starting coins</span><select id="start-select" aria-label="Starting coins for each player">
+        ${presets.map((v) => `<option value="${v}"${v === start ? ' selected' : ''}>${fmt(v)}</option>`).join('')}</select></label>` : '') +
         `<button class="btn btn-ghost btn-small" data-act="share">Share link</button>`;
       if (!host) html += '<small>The host starts the game.</small>';
     } else if (r.phase === 'betting') {
@@ -354,8 +397,8 @@ class GameView {
       } else if (r.settled) sub = '<small>You sat this one out. Next round in a moment.</small>';
       html = `<span class="res res--${r.winner}">${esc(this.rules.winText(r.winner))}</span>${sub}`;
     }
-    if (me && me.chips < this.cfg.chipValues[0] && !myBet && r.phase !== 'dealing') {
-      act += `<button class="btn btn-gold btn-small" data-act="refill">Get ${this.cfg.refillChips} free coins</button>`;
+    if (me && me.chips < this.c.minCoin() && !myBet && r.phase !== 'dealing') {
+      act += `<button class="btn btn-gold btn-small" data-act="refill">Get ${fmt(this.c.refillAmount())} free coins</button>`;
     }
     if (main.dataset.k !== html) { main.innerHTML = html; main.dataset.k = html; }
     if (actions.dataset.k !== act) { actions.innerHTML = act; actions.dataset.k = act; }
